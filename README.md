@@ -27,7 +27,7 @@ Python dependencies are now managed with uv instead of poetry. Use `uv run` wher
 
 Changes to the showdown game mode in `arduino/game.ino`:
 
-1. Scoring is now based on how long it takes to destroy each target (100-200 points per target) instead of a flat amount per level.
+1. Scoring is now based on how fast each target is destroyed instead of a flat amount per level: 200 points within 0.5s, dropping linearly to 100 points at 5s and after.
 2. Level ups happen at 8 and 14 targets destroyed. At 8, targets start randomly jumping. At 14, each hit counts for half as much (2 hits to destroy a target instead of 1).
 3. An IR remote sending protocol `8` / command `10` toggles the game on and off. The protocol and command of every received IR signal are printed over serial, which helps find the codes for a new remote.
 4. Uses the newer IRremote API (`IrReceiver.irparams`), so flash with a recent 4.x version of the IRremote library.

@@ -313,7 +313,7 @@ void targetDestroyedShowdown()
     playerStates[0].score += 100;
   }
   else {
-    playerStates[0].score += 100 + (uint16_t)((timeToDestroyTarget - 500) * 100 / 4500);
+    playerStates[0].score += 200 - (uint16_t)((timeToDestroyTarget - 500) * 100 / 4500);
   }
   // playerStates[0].score += totalTargetsDestroyed < LEVEL_1 ? 100 : totalTargetsDestroyed < LEVEL_2 ? 200
   //                                                              : totalTargetsDestroyed < LEVEL_3   ? 600
@@ -324,7 +324,7 @@ void targetDestroyedShowdown()
   uint8_t newHitsPerSignal = playerStates[0].hitsPerSignal;
   if (totalTargetsDestroyed == LEVEL_1)
   {
-    randomTargetJumpEnabled = true
+    randomTargetJumpEnabled = true;
   }
   else if (totalTargetsDestroyed == LEVEL_2)
   {

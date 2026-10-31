@@ -20,21 +20,14 @@ FASTLED_USING_NAMESPACE
 #define LED_DATA_PIN_2 7
 #define LED_DATA_PIN_3 8
 #define LED_DATA_PIN_4 9
-#define IR_RECEIVE_PIN_1 2
-#define IR_RECEIVE_PIN_2 3
-#define IR_RECEIVE_PIN_3 4
-#define IR_RECEIVE_PIN_4 5
-
 #define BRIGHTNESS 96
 #define FRAMES_PER_SECOND 120
 
 #define MS_OFFSET 1000
 #define MIN_MS_BETWEEN_JUMP 1000
-
-// Number of targets destroyed to trigger a level up
-#define LEVEL_1 10
-#define LEVEL_2 12
-#define LEVEL_3 14
+#define LEVEL_1 8
+#define LEVEL_2 14
+#define LEVEL_3 20
 #define SHOWDOWN_GAME_MODE 0
 #define VS_GAME_MODE 1
 
@@ -57,10 +50,10 @@ struct irTarget
   CRGB leds[NUM_LEDS];
 };
 
-irTarget target1 = {IR_RECEIVE_PIN_1};
-irTarget target2 = {IR_RECEIVE_PIN_2};
-irTarget target3 = {IR_RECEIVE_PIN_3};
-irTarget target4 = {IR_RECEIVE_PIN_4};
+irTarget target1 = {2};
+irTarget target2 = {3};
+irTarget target3 = {4};
+irTarget target4 = {5};
 
 // irTarget *irTargets[] = { &target1, &target2, &target3, &target4 };
 irTarget *irTargets[] = {&target1, &target2, &target3, &target4};
@@ -73,6 +66,8 @@ uint8_t activeTargetIdx = 0;
 bool gameActive = false;
 uint8_t gameMode = SHOWDOWN_GAME_MODE;
 unsigned long gameStart;
+unsigned long targetStart;
+unsigned long timeToDestroyTarget;
 unsigned long gameLength = 60000;
 bool randomTargetJumpEnabled = false;
 unsigned long lastJumpTime = 0;
@@ -119,7 +114,7 @@ byte buttonState = LOW;
 void printActivePin()
 {
   Serial.print(F("INFO: Active pin: "));
-  Serial.println(irparams.IRReceivePin);
+  Serial.println(IrReceiver.irparams.IRReceivePin);
 }
 
 void blinkRainbow(int tDelay = 100)
@@ -219,6 +214,7 @@ void resetGameState()
   emitGameMode();
 }
 
+// Activate the next target keeping the number of hits set
 void activateRandomNextTarget()
 {
   activeTargetIdx = random8(numTargets);
@@ -309,25 +305,36 @@ void targetDestroyedShowdown()
 {
   totalHitsOnTarget = 0;
   totalTargetsDestroyed += 1;
-  playerStates[0].score += totalTargetsDestroyed < LEVEL_1 ? 100 : totalTargetsDestroyed < LEVEL_2 ? 200
-                                                               : totalTargetsDestroyed < LEVEL_3   ? 600
-                                                                                                   : 1000;
+  timeToDestroyTarget = millis() - targetStart;
+  if (timeToDestroyTarget <= 500) {
+    playerStates[0].score += 200;
+  }
+  else if (timeToDestroyTarget > 5000) {
+    playerStates[0].score += 100;
+  }
+  else {
+    playerStates[0].score += 100 + (uint16_t)((timeToDestroyTarget - 500) * 100 / 4500);
+  }
+  // playerStates[0].score += totalTargetsDestroyed < LEVEL_1 ? 100 : totalTargetsDestroyed < LEVEL_2 ? 200
+  //                                                              : totalTargetsDestroyed < LEVEL_3   ? 600
+  //                                                                                                  : 1000;
   emitTargetDestroyed();
   emitScore();
 
   uint8_t newHitsPerSignal = playerStates[0].hitsPerSignal;
   if (totalTargetsDestroyed == LEVEL_1)
   {
-    newHitsPerSignal = 8;
+    randomTargetJumpEnabled = true
   }
   else if (totalTargetsDestroyed == LEVEL_2)
   {
-    newHitsPerSignal = 4;
+    newHitsPerSignal = 8;
   }
-  else if (totalTargetsDestroyed == LEVEL_3)
-  {
-    randomTargetJumpEnabled = true;
-  }
+  // else if (totalTargetsDestroyed == LEVEL_3)
+  // {
+  //   randomTargetJumpEnabled = true;
+  // }
+
   for (int i = 0; i < numPlayers; i++)
   {
     playerStates[i].hitsPerSignal = newHitsPerSignal;
@@ -469,12 +476,12 @@ void loop()
     {
       emitTargetHit();
     }
-    assert(irparams.IRReceivePin == irTargets[activeTargetIdx]->irPin);
+    assert(IrReceiver.irparams.IRReceivePin == irTargets[activeTargetIdx]->irPin);
 
     uint16_t sumIrBuffer = 0;
-    for (uint8_t i = 0; i < IrReceiver.decodedIRData.rawDataPtr->rawlen; i++)
+    for (uint8_t i = 0; i < IrReceiver.irparams.rawlen; i++)
     {
-      sumIrBuffer = IrReceiver.decodedIRData.rawDataPtr->rawbuf[i];
+      sumIrBuffer = IrReceiver.irparams.rawbuf[i];
     }
 
     lastPlayerHit = sumIrBuffer < 80 ? 0 : 1;
@@ -497,6 +504,7 @@ void loop()
         resetGameState();
         gameStart = millis();
         delay(1000);
+        targetStart = millis();
       } else {
         activeTargetIdx = 0;
       }
@@ -538,6 +546,7 @@ void loop()
       (gameMode == VS_GAME_MODE && playerStates[lastPlayerHit].hitsOnTarget >= NUM_LEDS / 2))
   {
     targetDestroyedUpdate();
+    targetStart = millis();
   }
 
   if (randomTargetJumpEnabled && millis() > lastJumpTime + MIN_MS_BETWEEN_JUMP && random8(100) < 0.05)
@@ -553,15 +562,14 @@ void loop()
 void ReceiveCompleteCallbackHandler()
 {
   IrReceiver.decode();
-  // Serial.print("protocol ");
-  // Serial.println(IrReceiver.decodedIRData.protocol);
-  // Serial.print("command ");
-  // Serial.println(IrReceiver.decodedIRData.command);
+  Serial.print("protocol ");
+  Serial.println(IrReceiver.decodedIRData.protocol);
+  Serial.print("command ");
+  Serial.println(IrReceiver.decodedIRData.command);
 
-  // The below lines are used to hack other IR signal remotes to enable the game
-  // if (IrReceiver.decodedIRData.protocol == 8 && IrReceiver.decodedIRData.command == 10) {
-  //   gameActiveChangeSignalReceived = true;
-  // }
+  if (IrReceiver.decodedIRData.protocol == 8 && IrReceiver.decodedIRData.command == 10) {
+    gameActiveChangeSignalReceived = true;
+  }
 
   if (IrReceiver.decodedIRData.protocol == NEC)
   {
@@ -584,7 +592,7 @@ void ReceiveCompleteCallbackHandler()
     }
   }
 
-  if (IrReceiver.decodedIRData.rawDataPtr->rawlen == 18)
+  if (IrReceiver.irparams.rawlen == 18)
   {
     sIRDataJustReceived = true;
     ledState = !ledState;

@@ -6,19 +6,15 @@ authors = [{ name = "Jonathan Zhang", email = "jonathan.z99@gmail.com" }]
 requires-python = "~=3.12"
 readme = "README.md"
 dependencies = [
-    "flask>=3.0.0,<4",
     "pyserial~=3.5",
-    "flask-socketio>=5.3.6,<6",
     "pygame>=2.5.2,<3",
-    "flask-cors>=4.0.0,<5",
-    "ruff>=0.7.1,<0.8",
 ]
 
 [dependency-groups]
 dev = [
     "mypy>=1.6.1,<2",
+    "ruff>=0.7.1,<0.8",
     "types-pyserial>=3.5.0.10,<4",
-    "types-flask-cors>=4.0.0.2,<5",
 ]
 
 [tool.uv]

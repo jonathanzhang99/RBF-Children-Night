@@ -1,0 +1,8 @@
+profiles:
+  uno:
+    fqbn: arduino:avr:uno
+    platforms:
+      - platform: arduino:avr (1.8.6)
+    libraries:
+      - DMD2 (0.0.3)
+default_profile: uno

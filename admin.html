@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Game Control</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --card: #ffffff;
+      --text: #1d2129;
+      --muted: #667085;
+      --border: #e3e6ea;
+      --green: #15803d;
+      --red: #c62828;
+      --accent: #2563eb;
+      --orange: #c2410c;
+      --blue: #1d4ed8;
+      --warn-bg: #fdecec;
+      --warn-text: #9b1c1c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111418;
+        --card: #1b2027;
+        --text: #eef1f5;
+        --muted: #98a2b3;
+        --border: #2c333d;
+        --accent: #7aa7ff;
+        --orange: #fb923c;
+        --blue: #7aa7ff;
+        --warn-bg: #3a1d1d;
+        --warn-text: #ffb4b4;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 560px; margin: 0 auto; padding: 24px 16px 40px; display: grid; gap: 16px; }
+    h1 { font-size: 22px; margin: 0; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+    .label { color: var(--muted); font-size: 14px; }
+    .state { font-size: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .state.running { color: var(--green); }
+    .numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .big { font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .big.versus { font-size: 30px; }
+    .versus .player { display: flex; align-items: baseline; gap: 8px; }
+    .orange { color: var(--orange); }
+    .blue { color: var(--blue); }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button { font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 18px; cursor: pointer; }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+    .start, .stop { color: #fff; font-size: 20px; }
+    .start { background: var(--green); }
+    .stop { background: var(--red); }
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; margin-top: 10px; background: var(--bg); border-radius: 12px; }
+    .modes button { background: transparent; color: var(--text); padding: 12px; }
+    .modes button:disabled { opacity: .55; }
+    .modes button.selected { background: var(--card); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+    .boards { display: grid; gap: 10px; margin-top: 10px; }
+    .board { display: flex; align-items: baseline; gap: 8px; }
+    .board .detail { color: var(--muted); }
+    .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transform: translateY(-1px); }
+    .connected .dot { background: var(--green); }
+    .problem, .problem .detail { color: var(--warn-text); }
+    .problem .dot { background: var(--warn-text); }
+    .board .toggle { margin-left: auto; flex: none; padding: 6px 12px; font-size: 14px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+    .message { min-height: 1.4em; color: var(--warn-text); }
+    .banner { display: none; background: var(--warn-bg); color: var(--warn-text); border-radius: 12px; padding: 12px 16px; }
+    .offline .banner { display: block; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Game control</h1>
+    <div class="banner">Can't reach the game server. Is <code>make run</code> still running?</div>
+
+    <section class="card">
+      <div class="state" id="state">Connecting…</div>
+      <div class="numbers">
+        <div><div class="big" id="time">–</div><div class="label">seconds left</div></div>
+        <div><div class="big" id="score">–</div><div class="label" id="score-label">score</div></div>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button class="start" id="start" onclick="send('start')">Start game</button>
+      <button class="stop" id="stop" onclick="send('stop')">Stop game</button>
+    </section>
+    <div class="message" id="message"></div>
+
+    <section class="card">
+      <div class="label">Game mode (change between games)</div>
+      <div class="modes">
+        <button id="showdown" onclick="send('showdown')">Showdown</button>
+        <button id="versus" onclick="send('versus')">Versus</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">Targets (IR sensor and lights)</div>
+      <div class="boards" id="ir"></div>
+    </section>
+
+    <section class="card">
+      <div class="label">Boards plugged in</div>
+      <div class="boards" id="boards"></div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // Opened straight from disk, where there's no server to ask for the status
+    if (location.protocol === "file:") {
+      document.querySelector(".banner").textContent =
+        "This is admin.html opened as a file. Open http://localhost:8080 while make run is running.";
+    }
+    let status = null;
+    let error = "";
+    let errorTimer;
+    let shownTargets = "";
+
+    async function refresh() {
+      try {
+        const res = await fetch("/status", { cache: "no-store" });
+        status = await res.json();
+      } catch {
+        status = null;
+      }
+      document.body.classList.toggle("offline", status === null);
+      render();
+    }
+
+    function render() {
+      const s = status;
+      const online = s !== null;
+      const running = online && s.gameActive;
+      const gameBoard = online && s.boards.some((b) => b.role === "GAME" && b.connected);
+      const versus = online && s.gameMode === "Versus";
+
+      $("state").textContent = !online ? "Offline" : running ? "Game running" : "Waiting to start";
+      $("state").classList.toggle("running", running);
+      $("time").textContent = online ? s.secondsRemaining.toFixed(1) : "–";
+      $("score").classList.toggle("versus", versus);
+      $("score-label").hidden = versus;
+      if (versus) {
+        // Each player's score in the color of their targets, one above the other
+        $("score").replaceChildren(
+          ...s.playerColors.map((color, i) => playerScore(i ? s.player2Score : s.score, color)));
+      } else {
+        $("score").textContent = online ? s.score : "–";
+      }
+
+      // The board ignores these anyway, so make it obvious why nothing would happen
+      $("start").disabled = !gameBoard || running;
+      $("stop").disabled = !gameBoard || !running;
+      for (const mode of ["showdown", "versus"]) {
+        $(mode).classList.toggle("selected", online && s.gameMode.toLowerCase() === mode);
+        $(mode).disabled = !gameBoard || running;
+      }
+
+      // Only rebuild the target rows when they change, so a click on their buttons
+      // isn't lost to a redraw halfway through it
+      const targets = online ? s.irReceivers : [];
+      const targetsKey = JSON.stringify([gameBoard, versus, targets.map((r) => [r.target, r.enabled, r.health, r.livePlayer, r.seeingIr])]);
+      if (targetsKey !== shownTargets) {
+        shownTargets = targetsKey;
+        $("ir").replaceChildren(...targets.map((r) => targetRow(r, gameBoard, versus && s.playerColors)));
+      }
+
+      $("boards").replaceChildren(
+        ...(online ? s.boards : []).map((b) => b.connected
+          ? statusRow("connected", `${boardName(b.role)} board`, `connected on ${shortPort(b.port)}`)
+          : statusRow("missing", `${boardName(b.role)} board`, "not connected")),
+        // Plugged in but not used, e.g. a board flashed with the wrong sketch
+        ...(online ? s.unusedPorts : []).map((p) =>
+          statusRow("problem", `Unused board on ${shortPort(p.port)}`, p.problem)),
+      );
+
+      $("message").textContent =
+        error || (online && !gameBoard ? "Waiting for the game board. Check its USB cable." : "");
+    }
+
+    // playerColors is only passed in versus mode, where each player has a live target
+    function targetRow(r, gameBoard, playerColors) {
+      const name = `Target ${r.target}`;
+      const live = r.livePlayer && (playerColors ? `live for ${playerColors[r.livePlayer - 1]}` : "live target");
+      let row;
+      if (!r.enabled) {
+        row = statusRow("missing", name, "disabled: never made a live target, but its lights still work");
+      } else if (r.health === "working") {
+        const details = ["working", live, r.seeingIr && "seeing IR"];
+        row = statusRow("connected", name, details.filter(Boolean).join(", "));
+      } else if (r.health === "stuck") {
+        row = statusRow("problem", name,
+          "stuck low: no power, or the sensor is broken. Games skip this target.");
+      } else {
+        row = statusRow("missing", name, gameBoard ? "no reading yet" : "waiting for the game board");
+      }
+      const toggle = document.createElement("button");
+      toggle.className = "toggle";
+      toggle.textContent = r.enabled ? "Disable" : "Enable";
+      toggle.onclick = () => send(`${r.enabled ? "disable" : "enable"} ${r.target}`);
+      row.append(toggle);
+      return row;
+    }
+
+    function playerScore(score, color) {
+      const row = document.createElement("div");
+      row.className = "player";
+      const number = document.createElement("span");
+      number.className = color;
+      number.textContent = score;
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = color;
+      row.append(number, label);
+      return row;
+    }
+
+    function boardName(role) {
+      return role[0] + role.slice(1).toLowerCase();
+    }
+
+    function shortPort(port) {
+      return port.replace(/^\/dev\/(cu\.|tty\.)?/, "");
+    }
+
+    // state is "connected" (green), "missing" (grey) or "problem" (red)
+    function statusRow(state, name, detail) {
+      const item = document.createElement("div");
+      item.className = `board ${state}`;
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      // Name and detail in one span so they wrap together like a sentence
+      const text = document.createElement("span");
+      const strong = document.createElement("strong");
+      strong.textContent = name;
+      const rest = document.createElement("span");
+      rest.className = "detail";
+      rest.textContent = ` ${detail}`;
+      text.append(strong, rest);
+      item.append(dot, text);
+      return item;
+    }
+
+    async function send(command) {
+      try {
+        const res = await fetch("/command", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command }),
+        });
+        showError((await res.json()).error || "");
+      } catch {
+        showError("Can't reach the game server");
+      }
+      refresh();
+    }
+
+    function showError(text) {
+      error = text;
+      clearTimeout(errorTimer);
+      if (text) {
+        errorTimer = setTimeout(() => { error = ""; render(); }, 4000);
+      }
+      render();
+    }
+
+    refresh();
+    setInterval(refresh, 500);
+  </script>
+</body>
+</html>
